@@ -1,3 +1,4 @@
+
 export interface DailyLog {
   id: string;
   date: string; // ISO String
@@ -72,15 +73,15 @@ export interface WellnessTrivia {
   misconception: string; // The common wrong belief
 }
 
-export type DriftTime = 'Morning' | 'Afternoon' | 'Evening';
-
 export interface UserProfile {
   name: string;
   jellyfishName: string;
-  preferredDriftTime: DriftTime;
+  preferredDriftTime: string; // Format "HH:mm"
+  preferredColor: string; // Mascot color preference
   isOnboarded: boolean;
   xp: number; // For mascot growth
   level: number;
+  lastCheckInDate?: string; // Track when user last checked in for visual glow
 }
 
 export type ViewState = 
@@ -91,6 +92,6 @@ export type ViewState =
   | 'reflection'
   | 'collection'
   | 'chat' // Dr. Jelly Chat
-  | 'bloom' // Changed from 'directory' to 'bloom' (Bloom Connections)
-  | 'bloomChat' // New: for chatting with a specific Bloom Guide
+  | 'bloom' 
+  | 'bloomChat' 
   | 'settings';
