@@ -1,4 +1,5 @@
-<h1 align="center">JellLight <img src="image/logo.jpeg" alt="JellLight Logo" width="70" style="vertical-align: middle; border-radius: 50%"></h1>
+<h1 align="center">JellLight</h1>
+<img src="image/logo.jpeg" alt="JellLight Logo" width="70" style="vertical-align: middle; border-radius: 50%">
 
 A React-based web application that helps users assess and predict their burnout risk through an intelligent questionnaire and analysis system.
 
