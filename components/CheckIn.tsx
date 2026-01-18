@@ -1,0 +1,600 @@
+import React, { useState, useEffect } from 'react';
+import { DailyLog, UserProfile, WellnessTrivia } from '../types';
+import { JellyfishLogo, ArrowRight, MessageSquare, Moon } from './Icons';
+import { getCheckInReaction, getWellnessTrivia } from '../services/geminiService';
+import { calculateDailyAnalysis, mapToLegacyScale } from '../services/analysisEngine';
+
+interface CheckInProps {
+  onSave: (log: DailyLog) => void;
+  onCancel: () => void;
+  userName: string;
+  logs: DailyLog[]; // Needed for the progress map history
+  startInMapMode?: boolean;
+}
+
+// Question Data Structure
+const CORE_QUESTIONS = [
+  {
+    id: 'core_q1',
+    text: "After work yesterday, what did you have energy for?",
+    options: [
+      { label: "✨ Things I wanted to do", score: 0 },
+      { label: "📋 Just necessary stuff", score: 1 },
+      { label: "🛋️ Only rest/collapse", score: 2 },
+      { label: "💼 Kept working/couldn't stop", score: 3 },
+    ]
+  },
+  {
+    id: 'core_q2',
+    text: "When you're not working, work thoughts...",
+    options: [
+      { label: "🧘 Barely cross my mind", score: 0 },
+      { label: "💭 Pop up sometimes", score: 1 },
+      { label: "🔄 Keep pulling me back", score: 2 },
+      { label: "🌀 Won't stop buzzing", score: 3 },
+    ]
+  },
+  {
+    id: 'core_q3',
+    text: "Thinking about work today, you feel...",
+    options: [
+      { label: "🌟 Pretty good about it", score: 0 },
+      { label: "😐 Neutral, just work", score: 1 },
+      { label: "😕 Bit heavy / 'ugh'", score: 2 },
+      { label: "😰 Actual dread", score: 3 },
+    ]
+  },
+  {
+    id: 'core_q4',
+    text: "This morning, how rested do you feel?",
+    options: [
+      { label: "😴 Recharged, slept great", score: 0 },
+      { label: "😊 Got enough, feel okay", score: 1 },
+      { label: "😐 Slept but still tired", score: 2 },
+      { label: "😫 Exhausted, rough night", score: 3 },
+    ]
+  }
+];
+
+const ROTATING_QUESTIONS_BY_DAY = [
+  // Sunday (0)
+  [
+    {
+      id: 'rotating_q5',
+      text: "This week, your work felt...",
+      type: 'Reward',
+      options: [
+         { label: "🌟 Appreciated, recognized", score: 0 },
+         { label: "👍 Acknowledged enough", score: 1 },
+         { label: "🤷 Under-acknowledged", score: 2 },
+         { label: "👻 Invisible, unappreciated", score: 3 }
+      ]
+    },
+    {
+      id: 'rotating_q6',
+      text: "Looking back at this week overall...",
+      type: 'Reflection',
+      options: [
+         { label: "☀️ Pretty good, balanced", score: 0 },
+         { label: "⛅ Mixed, ups and downs", score: 1 },
+         { label: "🌧️ Draining, rough", score: 2 },
+         { label: "⛈️ Really hard, barely made it", score: 3 }
+      ]
+    }
+  ],
+  // Monday (1)
+  [
+    {
+      id: 'rotating_q5',
+      text: "Today's workload feels...",
+      type: 'Workload',
+      options: [
+        { label: "🎯 Totally manageable", score: 0 },
+        { label: "📊 Full but got it", score: 1 },
+        { label: "🌊 Scrambling, too much", score: 2 },
+        { label: "🚫 Drowning, impossible", score: 3 },
+      ]
+    },
+    {
+      id: 'rotating_q6',
+      text: "Yesterday, did work stay in its lane?",
+      type: 'Boundaries',
+      options: [
+        { label: "✅ Started and stopped cleanly", score: 0 },
+        { label: "⏰ Ran a bit over", score: 1 },
+        { label: "🌙 Spilled into evening", score: 2 },
+        { label: "🌀 Fully blurred", score: 3 },
+      ]
+    }
+  ],
+  // Tuesday (2)
+  [
+      {
+        id: 'rotating_q5',
+        text: "With your work today, you feel...",
+        type: 'Control',
+        options: [
+          { label: "🎨 In control, steering", score: 0 },
+          { label: "⚖️ Mostly in control", score: 1 },
+          { label: "🌀 Reactive, catch-up", score: 2 },
+          { label: "🚫 Powerless, surviving", score: 3 },
+        ]
+      },
+      {
+        id: 'rotating_q6',
+        text: "Today, how much say do you have in HOW you work?",
+        type: 'Autonomy',
+        options: [
+          { label: "🎨 Lots of freedom", score: 0 },
+          { label: "✅ Some flexibility", score: 1 },
+          { label: "📋 Following the plan", score: 2 },
+          { label: "🚫 Zero control", score: 3 },
+        ]
+      }
+  ],
+  // Wednesday (3)
+  [
+      {
+        id: 'rotating_q5',
+        text: "Right now, your work feels...",
+        type: 'Meaning',
+        options: [
+          { label: "💫 Meaningful, matters", score: 0 },
+          { label: "✨ Okay, it's fine", score: 1 },
+          { label: "🤷 Going through motions", score: 2 },
+          { label: "❌ Pointless", score: 3 },
+        ]
+      },
+      {
+        id: 'rotating_q6',
+        text: "Your work right now feels...",
+        type: 'Skills',
+        options: [
+          { label: "🎯 Good fit for skills", score: 0 },
+          { label: "👍 Mostly matches", score: 1 },
+          { label: "🤔 Bit of a mismatch", score: 2 },
+          { label: "❌ Totally wrong fit", score: 3 },
+        ]
+      }
+  ],
+  // Thursday (4)
+  [
+      {
+        id: 'rotating_q5',
+        text: "At work lately, you feel...",
+        type: 'Community',
+        options: [
+          { label: "🤗 Connected to people", score: 0 },
+          { label: "💬 Okay, professional", score: 1 },
+          { label: "😶 Pretty alone", score: 2 },
+          { label: "🚪 Isolated, on my own", score: 3 },
+        ]
+      },
+      {
+        id: 'rotating_q6',
+        text: "If you needed help at work, you could...",
+        type: 'Support',
+        options: [
+          { label: "💯 Definitely get it", score: 0 },
+          { label: "👌 Probably get it", score: 1 },
+          { label: "🤷 Maybe, not sure", score: 2 },
+          { label: "🚫 You're on your own", score: 3 },
+        ]
+      }
+  ],
+  // Friday (5)
+  [
+      {
+        id: 'rotating_q5',
+        text: "This week at work, you felt...",
+        type: 'Fairness',
+        options: [
+          { label: "✅ Treated fairly", score: 0 },
+          { label: "👍 Mostly fair", score: 1 },
+          { label: "🤨 Some unfairness", score: 2 },
+          { label: "⚖️ Unfair, not valued", score: 3 },
+        ]
+      },
+      {
+        id: 'rotating_q6',
+        text: "Your trust in leadership/management is...",
+      type: 'Trust',
+      options: [
+          { label: "💙 Strong", score: 0 },
+          { label: "👍 Pretty good", score: 1 },
+          { label: "😐 Shaky", score: 2 },
+          { label: "🚫 Gone", score: 3 },
+        ]
+      }
+  ],
+  // Saturday (6)
+  [
+      {
+        id: 'rotating_q5',
+        text: "This week, your body felt...",
+        type: 'Physical',
+        options: [
+          { label: "💪 Pretty good, healthy", score: 0 },
+          { label: "👌 Fine, normal", score: 1 },
+          { label: "🤕 Some tension/aches", score: 2 },
+          { label: "😰 Lots of symptoms", score: 3 },
+        ]
+      },
+      {
+        id: 'rotating_q6',
+        text: "This week, days you moved 20+ min?",
+        type: 'Movement',
+        options: [
+          { label: "💪 5-7 days", score: 0 },
+          { label: "🚶 3-4 days", score: 1 },
+          { label: "🐌 1-2 days", score: 2 },
+          { label: "🛋️ 0 days", score: 3 },
+        ]
+      }
+  ]
+];
+
+export const CheckIn: React.FC<CheckInProps> = ({ onSave, onCancel, userName, logs, startInMapMode }) => {
+  const [phase, setPhase] = useState<'LOADING_TRIVIA' | 'TRIVIA' | 'CHECKIN' | 'PROCESSING' | 'RESULT'>('LOADING_TRIVIA');
+  const [currentQIndex, setCurrentQIndex] = useState(0); 
+  const [reaction, setReaction] = useState('');
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [finalLog, setFinalLog] = useState<DailyLog | null>(null);
+  
+  // Trivia State
+  const [trivia, setTrivia] = useState<WellnessTrivia | null>(null);
+  const [triviaAnswer, setTriviaAnswer] = useState<number | null>(null);
+
+  // Map Range State
+  const [mapRange, setMapRange] = useState<'WEEK' | 'TWO_WEEKS' | 'MONTH'>('WEEK');
+
+  const dayIndex = new Date().getDay();
+  
+  const todaysQuestions = [
+    ...CORE_QUESTIONS,
+    ...ROTATING_QUESTIONS_BY_DAY[dayIndex]
+  ];
+
+  useEffect(() => {
+    // If we're starting in map mode, jump directly to the result phase
+    if (startInMapMode) {
+        const todayStr = new Date().toDateString();
+        const existingToday = logs.find(l => new Date(l.date).toDateString() === todayStr);
+        setFinalLog(existingToday || null);
+        setPhase('RESULT');
+        return; // Prevent further execution of trivia fetching logic
+    }
+
+    // Only fetch trivia if we are in an initial state for a new check-in
+    if (phase === 'LOADING_TRIVIA') {
+        const fetchTrivia = async () => {
+            try {
+                const data = await getWellnessTrivia();
+                setTrivia(data);
+                setPhase('TRIVIA');
+            } catch (e) {
+                console.error("Error fetching trivia, skipping to check-in questions:", e);
+                // If trivia fails (e.g., API key issue), skip to checkin questions
+                setPhase('CHECKIN');
+            }
+        };
+        fetchTrivia();
+    }
+  }, [startInMapMode, logs, phase]); // Added phase to dependencies to prevent re-triggering if phase changes internally
+
+  const handleAnswer = (score: number) => {
+    const currentQ = todaysQuestions[currentQIndex];
+    const newAnswers = { ...answers, [currentQ.id]: score };
+    setAnswers(newAnswers);
+
+    if (currentQIndex < todaysQuestions.length - 1) {
+      setCurrentQIndex(currentQIndex + 1);
+    } else {
+      finishCheckIn(newAnswers);
+    }
+  };
+
+  const finishCheckIn = async (finalAnswers: Record<string, number>) => {
+    setPhase('PROCESSING');
+
+    const rawAnswers = {
+        core_q1: finalAnswers['core_q1'],
+        core_q2: finalAnswers['core_q2'],
+        core_q3: finalAnswers['core_q3'],
+        core_q4: finalAnswers['core_q4'],
+        rotating_q5: finalAnswers['rotating_q5'],
+        rotating_q6: finalAnswers['rotating_q6'],
+        rotating_type: ROTATING_QUESTIONS_BY_DAY[dayIndex][0].type
+    };
+
+    const analysis = calculateDailyAnalysis(rawAnswers);
+    const legacyMetrics = mapToLegacyScale(rawAnswers);
+
+    const newLog: DailyLog = {
+        id: crypto.randomUUID(),
+        date: new Date().toISOString(),
+        totalScore: analysis.totalScore,
+        riskLevel: analysis.riskLevel,
+        answers: rawAnswers,
+        flags: analysis.flags,
+        mood: legacyMetrics.mood,
+        energy: legacyMetrics.energy,
+        workload: legacyMetrics.workload,
+        sleepHours: legacyMetrics.sleepHours,
+        notes: `Risk: ${analysis.riskLevel} (Score ${analysis.totalScore})`
+    };
+
+    setFinalLog(newLog);
+
+    const reactionText = await getCheckInReaction({ name: userName } as UserProfile, newLog);
+    setReaction(reactionText);
+    
+    // Notify parent to save (this adds XP etc)
+    onSave(newLog);
+    
+    // Move to RESULT view to show map
+    setPhase('RESULT');
+  };
+
+  // Helper to format map summary text
+  const getLogSummary = (log: DailyLog) => {
+    // Determine descriptors based on mood/sleep
+    let mindState = 'Calm';
+    if (log.mood <= 4) mindState = 'Heavy';
+    if (log.mood <= 2) mindState = 'Stormy';
+    if (log.answers?.core_q2 >= 2) mindState = 'Buzzing'; // High Work Thoughts
+
+    let sleepState = 'Well';
+    if (log.sleepHours < 6) sleepState = 'Poor';
+    if (log.sleepHours < 5) sleepState = 'Restless';
+    if (log.sleepHours >= 7) sleepState = 'Good';
+
+    return `Mind: ${mindState} • Sleep: ${sleepState}`;
+  };
+
+  // Phase 1: Trivia Loading
+  if (phase === 'LOADING_TRIVIA') {
+      return (
+        <div className="h-full flex flex-col items-center justify-center p-4 text-center">
+            <JellyfishLogo className="w-16 h-16 text-teal-300 animate-breathe mb-4" />
+            <p className="text-blue-300 animate-pulse">Finding a thought for you...</p>
+        </div>
+      );
+  }
+
+  // Phase 2: Trivia Question & Result
+  if (phase === 'TRIVIA' && trivia) {
+      return (
+          <div className="h-full flex flex-col items-center justify-center p-6 animate-fade-in">
+              <div className="w-full max-w-md">
+                  <div className="mb-6 flex items-center justify-center">
+                      <div className="bg-teal-500/10 px-3 py-1 rounded-full text-teal-300 text-xs font-bold tracking-widest uppercase">
+                          Quick Fact
+                      </div>
+                  </div>
+                  
+                  {!triviaAnswer && triviaAnswer !== 0 ? (
+                      <>
+                        <h2 className="text-xl font-medium text-white text-center mb-8">{trivia.question}</h2>
+                        <div className="space-y-3">
+                            {trivia.options.map((opt, i) => (
+                                <button 
+                                    key={i}
+                                    onClick={() => setTriviaAnswer(i)}
+                                    className="w-full text-left p-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all text-blue-100 hover:text-white"
+                                >
+                                    {opt}
+                                </button>
+                            ))}
+                        </div>
+                      </>
+                  ) : (
+                      <div className="animate-fade-in text-center">
+                         <div className={`p-6 rounded-2xl mb-6 ${triviaAnswer === trivia.correctIndex ? 'bg-green-500/10 border-green-500/30' : 'bg-blue-500/10 border-blue-500/30'}`}>
+                             <h3 className="font-bold text-lg text-white mb-2">
+                                 {triviaAnswer === trivia.correctIndex ? "Correct!" : "Not quite!"}
+                             </h3>
+                             <p className="text-blue-100 text-sm leading-relaxed mb-4">
+                                 {trivia.explanation}
+                             </p>
+                             <div className="text-xs text-white/40 uppercase tracking-widest">Misconception: {trivia.misconception}</div>
+                         </div>
+                         <button 
+                            onClick={() => setPhase('CHECKIN')}
+                            className="w-full py-4 bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 rounded-xl font-bold text-white transition-all flex items-center justify-center gap-2"
+                         >
+                             Start Check-In <ArrowRight className="w-4 h-4" />
+                         </button>
+                      </div>
+                  )}
+                  
+                  {!triviaAnswer && triviaAnswer !== 0 && (
+                      <button onClick={onCancel} className="mt-8 w-full text-center text-sm text-blue-400 hover:text-white">Skip</button>
+                  )}
+              </div>
+          </div>
+      );
+  }
+
+  // Phase 4: Result (Progress Map)
+  if (phase === 'RESULT') {
+      // Find today's log for map view if it exists (for startInMapMode)
+      const existingTodayLogForMap = startInMapMode ? logs.find(l => new Date(l.date).toDateString() === new Date().toDateString()) : null;
+
+      // Determine how many days to show based on mapRange
+      let numDaysToShow = 7;
+      if (mapRange === 'TWO_WEEKS') numDaysToShow = 14;
+      if (mapRange === 'MONTH') numDaysToShow = 30;
+
+      // Generate history map for the selected range
+      const historyMap = Array.from({ length: numDaysToShow }, (_, i) => {
+          const daysAgo = numDaysToShow - 1 - i; // Calculate days ago for the current item in the loop
+          const d = new Date();
+          d.setDate(d.getDate() - daysAgo);
+          const dateStr = d.toDateString();
+          
+          let log = logs.find(l => new Date(l.date).toDateString() === dateStr);
+          // If this is today AND we just completed a check-in, use the local finalLog
+          if (daysAgo === 0 && finalLog && !startInMapMode) {
+              log = finalLog;
+          }
+          // If we are just viewing the map and there's a log for today, use that.
+          if (daysAgo === 0 && startInMapMode && existingTodayLogForMap) {
+              log = existingTodayLogForMap;
+          }
+
+          return { 
+              date: d, 
+              label: daysAgo === 0 ? 'TODAY' : daysAgo === 1 ? 'YESTERDAY' : d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase(),
+              fullDate: d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }),
+              log: log,
+              isToday: daysAgo === 0
+          };
+      }).reverse(); // Reverse to have latest day at the bottom (consistent with map flow)
+
+
+      return (
+        <div className="h-full flex flex-col p-6 animate-fade-in relative overflow-hidden">
+             
+             {/* Header */}
+             <div className="flex justify-between items-center mb-6 z-10">
+                 {!startInMapMode && (
+                     <div className="bg-teal-500/20 px-4 py-1.5 rounded-full border border-teal-500/30 flex items-center gap-2">
+                         <span className="text-teal-300 text-xs font-bold">+10 XP</span>
+                     </div>
+                 )}
+                 <div className="text-xs text-blue-300 ml-auto">Journey Map</div>
+             </div>
+
+             {/* Map Range Selector */}
+             <div className="flex justify-center bg-white/5 rounded-full p-1 mb-6 border border-white/10 z-10">
+                {['WEEK', 'TWO_WEEKS', 'MONTH'].map((range) => (
+                    <button
+                        key={range}
+                        onClick={() => setMapRange(range as 'WEEK' | 'TWO_WEEKS' | 'MONTH')}
+                        className={`
+                            flex-1 text-center py-2 px-3 rounded-full text-sm font-medium transition-all
+                            ${mapRange === range ? 'bg-teal-500/30 text-white' : 'text-blue-300 hover:bg-white/10'}
+                        `}
+                    >
+                        {range.replace('_', ' ')}
+                    </button>
+                ))}
+             </div>
+
+             {/* Map Container */}
+             <div className="flex-1 relative pl-6 pr-2 overflow-y-auto">
+                 {/* Vertical Line */}
+                 <div className="absolute left-[39px] top-4 h-[calc(100%-32px)] w-0.5 bg-white/10" /> {/* Adjusted height and position */}
+
+                 <div className="space-y-8 relative z-10 py-4">
+                     {historyMap.map((item, i) => (
+                         <div key={i} className={`flex items-start gap-6 group ${!item.log ? 'opacity-50' : ''}`}>
+                             {/* Node */}
+                             <div className={`
+                                 w-16 h-16 rounded-full flex items-center justify-center shrink-0 border-2 transition-all relative z-10
+                                 ${item.isToday 
+                                     ? 'bg-[#0f172a] border-teal-400 shadow-[0_0_20px_rgba(45,212,191,0.4)]' 
+                                     : item.log 
+                                        ? 'bg-[#0f172a] border-blue-500/30' 
+                                        : 'bg-[#0f172a] border-dashed border-white/10'
+                                 }
+                             `}>
+                                 <JellyfishLogo className={`
+                                     ${item.isToday ? 'w-10 h-10 text-teal-300 animate-breathe' : item.log ? 'w-8 h-8 text-blue-400' : 'w-6 h-6 text-white/20'}
+                                 `} />
+                             </div>
+
+                             {/* Content */}
+                             <div className="pt-2">
+                                 <div className="flex items-center gap-2 mb-1">
+                                     <span className="text-[10px] font-bold tracking-widest text-blue-400/80">{item.label}</span>
+                                 </div>
+                                 <h3 className={`text-lg font-medium mb-1 ${item.isToday ? 'text-white' : 'text-blue-100'}`}>
+                                     {item.fullDate}
+                                 </h3>
+                                 <div className="flex items-center gap-2 text-sm text-blue-300">
+                                     {item.log ? (
+                                         <>
+                                             {item.isToday && <span className="text-teal-400 mr-1">✨</span>}
+                                             {getLogSummary(item.log)}
+                                         </>
+                                     ) : (
+                                         <span className="text-white/30 italic">— Day drifted by</span>
+                                     )}
+                                 </div>
+                             </div>
+                         </div>
+                     ))}
+                 </div>
+             </div>
+
+            {/* Reaction Summary (Overlay at bottom if just checked in) */}
+            {!startInMapMode && reaction && (
+                <div className="mt-4 p-4 bg-white/5 border border-white/10 rounded-xl relative z-10">
+                    <div className="flex gap-3">
+                        <JellyfishLogo className="w-5 h-5 text-teal-300 shrink-0 mt-1" />
+                        <p className="text-sm text-blue-100 italic">"{reaction}"</p>
+                    </div>
+                </div>
+            )}
+
+             {/* Footer Action */}
+             <div className="mt-4 z-10">
+                <button 
+                    onClick={onCancel}
+                    className="w-full py-4 bg-white/10 hover:bg-white/20 rounded-xl font-bold transition-all border border-white/10"
+                >
+                    Back to Dashboard
+                </button>
+             </div>
+        </div>
+      );
+  }
+
+  // Phase 3: Check-in Questions (Default/Processing)
+  const question = todaysQuestions[currentQIndex];
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center p-4">
+      <div className="w-full max-w-md animate-fade-in">
+         {/* Progress Bar */}
+         {phase === 'CHECKIN' && (
+             <div className="flex gap-1 mb-8">
+                {todaysQuestions.map((_, idx) => (
+                    <div key={idx} className={`h-1 flex-1 rounded-full transition-all ${idx <= currentQIndex ? 'bg-teal-400' : 'bg-white/10'}`} />
+                ))}
+             </div>
+         )}
+
+         {phase === 'CHECKIN' ? (
+            <>
+                <h2 className="text-xl font-medium text-center mb-8 min-h-[60px] flex items-center justify-center">
+                    {question.text}
+                </h2>
+                <div className="space-y-3">
+                    {question.options.map((opt, idx) => (
+                        <button 
+                            key={idx}
+                            onClick={() => handleAnswer(opt.score)}
+                            className="w-full text-left p-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-teal-500/30 transition-all text-blue-100 hover:text-white flex items-center gap-3"
+                        >
+                            <div className={`w-2 h-2 rounded-full ${opt.score === 0 ? 'bg-teal-400' : opt.score === 1 ? 'bg-blue-400' : opt.score === 2 ? 'bg-yellow-400' : 'bg-red-400'}`} />
+                            {opt.label}
+                        </button>
+                    ))}
+                </div>
+            </>
+         ) : (
+            <div className="text-center text-blue-300 animate-pulse mt-8">
+                Processing your patterns...
+            </div>
+         )}
+         
+         <button onClick={onCancel} className="mt-8 w-full text-center text-sm text-blue-400 hover:text-white transition-colors">
+            Cancel
+        </button>
+      </div>
+    </div>
+  );
+};
