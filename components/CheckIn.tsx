@@ -16,7 +16,7 @@ interface CheckInProps {
 }
 
 export const CheckIn: React.FC<CheckInProps> = ({ onSave, onCancel, userName, logs, userLevel = 1, startInMapMode }) => {
-  const [phase, setPhase] = useState<'LOADING_TRIVIA' | 'TRIVIA' | 'CHECKIN' | 'PROCESSING' | 'RESULT'>('LOADING_TRIVIA');
+  const [phase, setPhase] = useState<'LOADING_TRIVIA' | 'TRIVIA' | 'CHECKIN' | 'PROCESSING' | 'REACTION' | 'RESULT'>('LOADING_TRIVIA');
   const [currentQIndex, setCurrentQIndex] = useState(0); 
   const [reaction, setReaction] = useState('');
   const [answers, setAnswers] = useState<Record<string, number>>({});
@@ -173,7 +173,7 @@ export const CheckIn: React.FC<CheckInProps> = ({ onSave, onCancel, userName, lo
           console.error("Failed to get reaction:", e);
       }
       onSave(newLog);
-      setPhase('RESULT');
+      setPhase('REACTION');
     } finally {
       isProcessingRef.current = false;
     }
@@ -219,6 +219,16 @@ export const CheckIn: React.FC<CheckInProps> = ({ onSave, onCancel, userName, lo
                 </div>
             )}
         </div>
+    </div>
+  );
+
+  if (phase === 'REACTION') return (
+    <div className="h-full flex flex-col items-center justify-center p-6 animate-fade-in">
+      <div className="w-full max-w-md text-center">
+        <JellyfishLogo className="w-40 h-40 text-teal-300 animate-breathe mb-4 mx-auto" level={userLevel} />
+        <p className="text-white text-lg mb-8">{reaction}</p>
+        <button onClick={() => setPhase('RESULT')} className="w-full py-4 bg-teal-500/20 hover:bg-teal-500/30 border border-teal-500/30 rounded-xl font-bold text-white transition-all">Continue to Journey Map</button>
+      </div>
     </div>
   );
 
