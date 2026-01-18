@@ -238,6 +238,7 @@ export default function App() {
                 <WeeklyReflection 
                   user={user}
                   logs={logs}
+                  collection={collection}
                   onClose={() => setView('dashboard')}
                   onNavigateToBloom={() => setView('bloom')}
                   onSaveSticker={handleSaveSticker}

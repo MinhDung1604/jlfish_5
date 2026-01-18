@@ -51,7 +51,7 @@ export interface ChatMessage {
   timestamp: string;
 }
 
-export type StickerArchetype = 'Jellyfish' | 'Turtle' | 'Anchor' | 'Spark' | 'Coral' | 'Storm';
+export type StickerArchetype = 'Jellyfish' | 'Octopus' | 'Turtle' | 'Seahorse' | 'Dolphin' | 'Starfish' | 'Crab';
 
 export interface WeeklyCollectionItem {
   id: string;

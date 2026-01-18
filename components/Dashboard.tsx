@@ -26,10 +26,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, logs, collection, on
     };
     loadGreeting();
     return () => { mounted = false; };
-  }, [user, logs.length]); 
+  }, [user.name]); 
 
   const todayStr = new Date().toDateString();
   const hasCheckedInToday = user.lastCheckInDate === todayStr || (logs.length > 0 && new Date(logs[logs.length-1].date).toDateString() === todayStr);
+  
+  // Check if reflection for this week already exists
+  const getWeekStart = (date: Date) => {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day;
+    return new Date(d.setDate(diff)).toDateString();
+  };
+
+  const thisWeekStart = getWeekStart(new Date());
+  const hasExistingReflection = collection.some(item => getWeekStart(new Date(item.weekStartDate)) === thisWeekStart);
   
   // Available every 7 logs or logs >= 2 for testing
   const isWeeklyReflectionAvailable = logs.length >= 2;
@@ -142,10 +153,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, logs, collection, on
             <div className="flex-1">
               <h3 className="text-xl font-bold text-white">Weekly Reflection</h3>
               <p className="text-sm text-blue-200/70">
-                {isWeeklyReflectionAvailable ? "A character is waiting for you." : "Check back in on Monday."}
+                {!isWeeklyReflectionAvailable ? "Check back in on Monday." : hasExistingReflection ? "View your past reflection." : "A character is waiting for you."}
               </p>
             </div>
-            {isWeeklyReflectionAvailable && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
+            {isWeeklyReflectionAvailable && !hasExistingReflection && <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
           </div>
         </button>
 

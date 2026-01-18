@@ -9,6 +9,7 @@ import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 interface WeeklyReflectionProps {
   user: UserProfile;
   logs: DailyLog[];
+  collection: WeeklyCollectionItem[];
   onClose: () => void;
   onNavigateToBloom: () => void;
   onSaveSticker: (item: WeeklyCollectionItem) => void;
@@ -77,20 +78,41 @@ const AnimatedEgg = ({ onHatch, isHatching }: { onHatch: () => void, isHatching:
   );
 };
 
-export const WeeklyReflection: React.FC<WeeklyReflectionProps> = ({ user, onClose, onNavigateToBloom, logs, onSaveSticker }) => {
+export const WeeklyReflection: React.FC<WeeklyReflectionProps> = ({ user, onClose, onNavigateToBloom, logs, collection, onSaveSticker }) => {
   const [data, setData] = useState<WeeklyReflectionResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [step, setStep] = useState(0); 
   const [isHatching, setIsHatching] = useState(false);
 
+  // Check if reflection for this week already exists
+  const getWeekStart = (date: Date) => {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day;
+    return new Date(d.setDate(diff)).toDateString();
+  };
+
+  const thisWeekStart = getWeekStart(new Date());
+  const existingReflection = collection.find(item => getWeekStart(new Date(item.weekStartDate)) === thisWeekStart);
+
   useEffect(() => {
+    // If reflection already exists, don't fetch
+    if (existingReflection) {
+      setLoading(false);
+      return;
+    }
+
+    let mounted = true;
     const fetchReflection = async () => {
       const result = await getWeeklyReflection(user, logs);
-      setData(result);
-      setLoading(false);
+      if (mounted) {
+        setData(result);
+        setLoading(false);
+      }
     };
     fetchReflection();
-  }, [user, logs]);
+    return () => { mounted = false; };
+  }, []);
 
   const handleFinish = () => {
       if (data) {
@@ -118,6 +140,37 @@ export const WeeklyReflection: React.FC<WeeklyReflectionProps> = ({ user, onClos
       <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-4">
         <JellyfishLogo className="w-16 h-16 text-teal-300 animate-breathe mb-4" level={user.level} />
         <div className="text-blue-300 animate-pulse">Gathering thoughts from the deep...</div>
+      </div>
+    );
+  }
+
+  // View existing reflection
+  if (existingReflection) {
+    return (
+      <div className="h-full flex flex-col animate-fade-in p-6">
+          <button onClick={onClose} className="self-start p-2 bg-white/5 rounded-full mb-6">
+              <ArrowLeft className="w-5 h-5" />
+          </button>
+
+          <p className="text-xs text-blue-400 uppercase tracking-widest text-center mb-8">View your latest reflection</p>
+
+          <div className="flex-1 flex flex-col items-center text-center">
+              <div className="relative mb-8">
+                  <div className="absolute inset-0 blur-[60px] opacity-20" style={{ backgroundColor: existingReflection.sticker.color }} />
+                  <Sticker archetype={existingReflection.sticker.archetype} color={existingReflection.sticker.color} className="w-48 h-48 relative z-10" />
+              </div>
+              
+              <h2 className="text-2xl font-bold text-white mb-2">{existingReflection.sticker.name}</h2>
+              <p className="text-xs text-blue-400 mb-8 uppercase tracking-widest">{new Date(existingReflection.weekStartDate).toLocaleDateString()}</p>
+
+              <div className="bg-white/5 p-6 rounded-2xl border border-white/10 w-full text-left">
+                  <h3 className="text-xs text-teal-400 uppercase font-bold mb-2">Why this character?</h3>
+                  <p className="text-blue-100 mb-6 text-sm">{existingReflection.sticker.reason}</p>
+                  
+                  <h3 className="text-xs text-teal-400 uppercase font-bold mb-2">Story of that week</h3>
+                  <p className="text-blue-200 text-sm leading-relaxed italic">"{existingReflection.story}"</p>
+              </div>
+          </div>
       </div>
     );
   }

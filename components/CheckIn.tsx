@@ -1,6 +1,6 @@
 
 // ... (imports remain the same as provided)
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DailyLog, UserProfile, WellnessTrivia } from '../types';
 import { JellyfishLogo, ArrowRight, MessageSquare, Moon } from './Icons';
 import { getCheckInReaction, getWellnessTrivia } from '../services/geminiService';
@@ -24,6 +24,7 @@ export const CheckIn: React.FC<CheckInProps> = ({ onSave, onCancel, userName, lo
   const [trivia, setTrivia] = useState<WellnessTrivia | null>(null);
   const [triviaAnswer, setTriviaAnswer] = useState<number | null>(null);
   const [mapRange, setMapRange] = useState<'WEEK' | 'TWO_WEEKS' | 'MONTH'>('WEEK');
+  const isProcessingRef = useRef(false);
 
   const now = new Date();
   const isBeforeNoon = now.getHours() < 12;
@@ -88,26 +89,39 @@ export const CheckIn: React.FC<CheckInProps> = ({ onSave, onCancel, userName, lo
   const todaysQuestions = [...CORE_QUESTIONS, ...ROTATING_QUESTIONS_BY_DAY[dayIndex]];
 
   useEffect(() => {
-    if (startInMapMode) {
-        const todayStr = new Date().toDateString();
-        const existingToday = logs.find(l => new Date(l.date).toDateString() === todayStr);
-        setFinalLog(existingToday || null);
-        setPhase('RESULT');
-        return;
-    }
-    if (phase === 'LOADING_TRIVIA') {
-        const fetchTrivia = async () => {
-            try {
-                const data = await getWellnessTrivia();
+    // Only fetch trivia once on mount
+    let isMounted = true;
+
+    const initializeCheckIn = async () => {
+        if (startInMapMode) {
+            const todayStr = new Date().toDateString();
+            const existingToday = logs.find(l => new Date(l.date).toDateString() === todayStr);
+            if (isMounted) {
+                setFinalLog(existingToday || null);
+                setPhase('RESULT');
+            }
+            return;
+        }
+
+        try {
+            const data = await getWellnessTrivia();
+            if (isMounted) {
                 setTrivia(data);
                 setPhase('TRIVIA');
-            } catch (e) {
+            }
+        } catch (e) {
+            if (isMounted) {
                 setPhase('CHECKIN');
             }
-        };
-        fetchTrivia();
-    }
-  }, [startInMapMode, logs, phase]);
+        }
+    };
+
+    initializeCheckIn();
+
+    return () => {
+        isMounted = false;
+    };
+  }, []);
 
   const handleAnswer = (score: number) => {
     const currentQ = todaysQuestions[currentQIndex];
@@ -120,38 +134,50 @@ export const CheckIn: React.FC<CheckInProps> = ({ onSave, onCancel, userName, lo
     }
   };
 
-  const finishCheckIn = async (finalAnswers: Record<string, number>) => {
-    setPhase('PROCESSING');
-    const rawAnswers = {
-        core_q1: finalAnswers['core_q1'],
-        core_q2: finalAnswers['core_q2'],
-        core_q3: finalAnswers['core_q3'],
-        core_q4: finalAnswers['core_q4'],
-        rotating_q5: finalAnswers['rotating_q5'],
-        rotating_q6: finalAnswers['rotating_q6'],
-        rotating_type: ROTATING_QUESTIONS_BY_DAY[dayIndex][0].type
-    };
-    const analysis = calculateDailyAnalysis(rawAnswers);
-    const legacyMetrics = mapToLegacyScale(rawAnswers);
-    const newLog: DailyLog = {
-        id: crypto.randomUUID(),
-        date: new Date().toISOString(),
-        totalScore: analysis.totalScore,
-        riskLevel: analysis.riskLevel,
-        answers: rawAnswers,
-        flags: analysis.flags,
-        mood: legacyMetrics.mood,
-        energy: legacyMetrics.energy,
-        workload: legacyMetrics.workload,
-        sleepHours: legacyMetrics.sleepHours,
-        notes: `Checked in ${timeContext}. Risk: ${analysis.riskLevel}`
-    };
-    setFinalLog(newLog);
-    const reactionText = await getCheckInReaction({ name: userName } as UserProfile, newLog);
-    setReaction(reactionText);
-    onSave(newLog);
-    setPhase('RESULT');
-  };
+  const finishCheckIn = useCallback(async (finalAnswers: Record<string, number>) => {
+    // Prevent multiple concurrent calls
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
+
+    try {
+      setPhase('PROCESSING');
+      const rawAnswers = {
+          core_q1: finalAnswers['core_q1'],
+          core_q2: finalAnswers['core_q2'],
+          core_q3: finalAnswers['core_q3'],
+          core_q4: finalAnswers['core_q4'],
+          rotating_q5: finalAnswers['rotating_q5'],
+          rotating_q6: finalAnswers['rotating_q6'],
+          rotating_type: ROTATING_QUESTIONS_BY_DAY[dayIndex][0].type
+      };
+      const analysis = calculateDailyAnalysis(rawAnswers);
+      const legacyMetrics = mapToLegacyScale(rawAnswers);
+      const newLog: DailyLog = {
+          id: crypto.randomUUID(),
+          date: new Date().toISOString(),
+          totalScore: analysis.totalScore,
+          riskLevel: analysis.riskLevel,
+          answers: rawAnswers,
+          flags: analysis.flags,
+          mood: legacyMetrics.mood,
+          energy: legacyMetrics.energy,
+          workload: legacyMetrics.workload,
+          sleepHours: legacyMetrics.sleepHours,
+          notes: `Checked in ${timeContext}. Risk: ${analysis.riskLevel}`
+      };
+      setFinalLog(newLog);
+      try {
+          const reactionText = await getCheckInReaction({ name: userName } as UserProfile, newLog);
+          setReaction(reactionText);
+      } catch (e) {
+          console.error("Failed to get reaction:", e);
+      }
+      onSave(newLog);
+      setPhase('RESULT');
+    } finally {
+      isProcessingRef.current = false;
+    }
+  }, [dayIndex, timeContext, userName, onSave]);
 
   const getLogSummary = (log: DailyLog) => {
     let mindState = 'Calm';

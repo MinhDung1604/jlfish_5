@@ -3,7 +3,7 @@ import { GoogleGenAI, Type, Chat } from "@google/genai";
 import { DailyLog, AIAnalysis, BurnoutRisk, UserProfile, ChatMessage, WeeklyCollectionItem, WellnessTrivia } from "../types";
 import { BloomGuide } from '../components/BloomConnections'; // Import BloomGuide interface
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const JELLYFISH_PERSONA = `
 You are a bioluminescent jellyfish companion named Jelly. 
@@ -48,7 +48,7 @@ export const analyzeBurnoutRisks = async (logs: DailyLog[]): Promise<AIAnalysis>
   try {
     const response = await ai.models.generateContent({
       // Complex analysis task: use gemini-3-pro-preview
-      model: "gemini-3-pro-preview", 
+      model: "gemini-2.5-flash", 
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -98,7 +98,7 @@ export const getJellyfishGreeting = async (user: UserProfile, logs: DailyLog[]):
   try {
     const response = await ai.models.generateContent({
       // Basic text generation: use gemini-3-flash-preview
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.5-flash",
       contents: prompt,
     });
     return response.text || `Good ${timeOfDay}, ${user.name}. I'm drifting here with you.`;
@@ -136,7 +136,7 @@ export const getCheckInReaction = async (user: UserProfile, currentLog: DailyLog
   try {
     const response = await ai.models.generateContent({
       // Basic text generation: use gemini-3-flash-preview
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.5-flash",
       contents: prompt,
     });
     return response.text || "Thank you for sharing that with me. I'll hold onto this for you.";
@@ -165,18 +165,19 @@ export const getWeeklyReflection = async (user: UserProfile, logs: DailyLog[]): 
     
     1. Write a "Story of the Week" (2-3 sentences): Summarize the emotional/physical trend. Use "I noticed..."
     2. Provide 3 specific actionable items/suggestions.
-    3. Generate a "Character of the Week" (Sticker) that represents their vibe.
-       - Archetype MUST be one of: 'Jellyfish', 'Turtle', 'Anchor', 'Spark', 'Coral', 'Storm'.
-       - Name: Give the character a name (e.g., "The Resilient Coral").
-       - Reason: One sentence why this character fits their week.
-       - Color: A hex code representing the mood (e.g., #ef4444 for stress, #2dd4bf for calm).
+    3. Generate a "Character of the Week" (Sticker) that represents their vibe - must be a sea animal.
+       - Archetype MUST be one of: 'Jellyfish' (flowing, serene, adaptable), 'Octopus' (intelligent, multi-tasking, adaptable), 'Turtle' (grounded, wise, slow and steady), 'Seahorse' (gentle, vulnerable, graceful), 'Dolphin' (social, playful, energetic), 'Starfish' (resilient, regenerative, peaceful), 'Crab' (defensive, protective, cautious).
+       - Choose the archetype that best fits their week's emotional state and energy level.
+       - Name: Give the character a name (e.g., "The Steadfast Turtle").
+       - Reason: One sentence why this sea animal character fits their week and what it represents for them.
+       - Color: A hex code representing the mood/energy (e.g., #ef4444 for stress, #2dd4bf for calm, #fbbf24 for playful).
     4. Return valid JSON.
   `;
 
   try {
     const response = await ai.models.generateContent({
       // More complex synthesis task: use gemini-3-pro-preview
-      model: "gemini-3-pro-preview",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -188,7 +189,7 @@ export const getWeeklyReflection = async (user: UserProfile, logs: DailyLog[]): 
             sticker: {
                 type: Type.OBJECT,
                 properties: {
-                    archetype: { type: Type.STRING, enum: ['Jellyfish', 'Turtle', 'Anchor', 'Spark', 'Coral', 'Storm'] },
+                    archetype: { type: Type.STRING, enum: ['Jellyfish', 'Octopus', 'Turtle', 'Seahorse', 'Dolphin', 'Starfish', 'Crab'] },
                     name: { type: Type.STRING },
                     reason: { type: Type.STRING },
                     color: { type: Type.STRING }
@@ -205,7 +206,7 @@ export const getWeeklyReflection = async (user: UserProfile, logs: DailyLog[]): 
     return {
         story: result.story || "I've noticed you've been carrying a lot this week. Let's take a moment to just float.",
         suggestions: result.suggestions || ["Rest", "Drink Water"],
-        sticker: result.sticker || { archetype: 'Jellyfish', name: 'The Drifter', reason: 'You are floating along.', color: '#2dd4bf' },
+        sticker: result.sticker || { archetype: 'Jellyfish', name: 'The Drifter', reason: 'You are floating along, adapting to the currents of the week.', color: '#2dd4bf' },
         isHighRisk: result.isHighRisk ?? isHighRiskDeterministic
     };
   } catch (e) {
@@ -238,7 +239,7 @@ export const getDrJellyChat = (history: ChatMessage[], logs: DailyLog[]): Chat =
 
   return ai.chats.create({
     // Conversational task: use gemini-3-flash-preview
-    model: "gemini-3-flash-preview",
+    model: "gemini-2.5-flash",
     config: { systemInstruction },
     history: chatHistory
   });
@@ -261,7 +262,7 @@ export const getBloomGuideChat = (guide: BloomGuide, history: ChatMessage[], log
 
   return ai.chats.create({
     // Conversational task: use gemini-3-flash-preview
-    model: "gemini-3-flash-preview",
+    model: "gemini-2.5-flash",
     config: { systemInstruction },
     history: chatHistory
   });
@@ -284,8 +285,7 @@ export const getWellnessTrivia = async (): Promise<WellnessTrivia> => {
 
   try {
     const response = await ai.models.generateContent({
-      // Basic text generation: use gemini-3-flash-preview
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
